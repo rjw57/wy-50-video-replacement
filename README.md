@@ -53,3 +53,18 @@ regarded as an analogue signal:
 
 If we leave !DIM disconnected we can drive intensity through the VIDEO signal
 alone.
+
+### Timings
+
+Inferred timings from the above:
+
+|Parameter|Value|Note|
+|-|-|-|
+|Total vertical lines|375|= 22500Hz / 60Hz|
+|Visible vertical lines|360(?)|Based on manual's claim of up to 44 lines (+1 status) at 8 lines/char|
+|Character clock|2.3529MHz(?)|Based on 80 chars/visible line|
+|Frame rate|60Hz||
+|VSYNC pulse width|133µs|Appears to be 4 line periods|
+|HSYNC pulse width|16.6µs||
+|Line duration|44.4µs||
+|Visible line duration|34.0µs||
