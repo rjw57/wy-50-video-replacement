@@ -46,8 +46,8 @@ HSYNC frequency as measured by the hardware counter is 22.5kHz. The visible line
 width is 34µs. The *end* of the visible area is associated with the +ve going
 HSYNC edge.
 
-The VIDEO signal itself directly drives the electron gun and so is an analogue
-signal:
+The VIDEO signal itself indirectly drives the electron gun and so may be
+regarded as an analogue signal:
 
 ![](img/video-drive.png)
 
