@@ -26,7 +26,9 @@ connector. Signal is the signal name. Note that pin 1 as labelled on the
 
 When the connector is unplugged, only pin 8 has +5V on it. When connected the
 other volatages are present suggesting that the other voltages are generated on
-the main board.
+the main board or are not generated without some main board work. Glancing at
+the schematics, it does not appear that we care too much; we can just use the
++5V rail and send the VIDEO/HSYNC/VSYNC signals.
 
 The following trace shows the VSYNC signal (top) and HSYNC (bottom):
 
