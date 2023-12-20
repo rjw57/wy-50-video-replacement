@@ -1,8 +1,8 @@
-# WY-55 Video Replacement
+# WY-50 Video Replacement
 
 ## Notes
 
-This is a project to interface with the video connector for the WY-55 terminal.
+This is a project to interface with the video connector for the WY-50 terminal.
 
 The video connection is via a 12 pin connector. Pin numbering matches the
 schematic. Nominal colours are from the schematic, actual colours are from the
