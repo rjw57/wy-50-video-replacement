@@ -24,14 +24,6 @@ int main(void) {
 
   memset(frame_buffer, 0x00, videoout_get_screen_stride() * videoout_get_screen_height());
 
-#if 0
-  for (int y = 0; y < videoout_get_screen_height(); y++) {
-    set_pixel(y, y, 0);
-    set_pixel(y + 20, y, 2);
-    set_pixel(y + 40, y, 3);
-  }
-#endif
-
   int y = 0;
   for (int c = 0; c < 256; c++) {
     gfx_draw_char((c * 9) % videoout_get_screen_width(),
