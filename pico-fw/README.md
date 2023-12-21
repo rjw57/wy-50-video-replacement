@@ -10,6 +10,15 @@ $ popd
 $ cmake --build build --parallel
 ```
 
+The `libtmt` library is originally from https://github.com/deadpixi/libtmt.
+
+Connect to serial console via:
+
+```sh
+sudo socat -d -d 'stdin,raw,echo=0!!/dev/ttyACM1,b115200,raw,echo=0,cs8' \
+    exec:"/bin/login -f $USER TERM=ansi",pty,setsid,setpgid,stderr
+```
+
 ## Hardware
 
 Connect the following pins of the WY-50 video connector to the pico board. Use any GND connection

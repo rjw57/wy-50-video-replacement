@@ -20,10 +20,23 @@ endif()
 add_executable(
   firmware
   firmware.c videoout.c graphics.c
+  vendor/libtmt/tmt.c
+)
+
+set_source_files_properties(
+  vendor/libtmt/tmt.c
+  PROPERTIES
+  COMPILE_OPTIONS "-Wno-unused-variable"
+)
+
+target_include_directories(
+  firmware
+  PUBLIC vendor/libtmt
 )
 
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/videoout.pio)
 pico_enable_stdio_uart(firmware 1)
+pico_enable_stdio_usb(firmware 1)
 
 target_link_libraries(
   firmware
