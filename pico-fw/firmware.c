@@ -45,12 +45,12 @@ int main(void) {
   y += 14 * 3;
   for (int c = 0; c < 256; c++) {
     gfx_draw_char((c * 9) % videoout_get_screen_width(),
-                  y + 14 * ((c * 9) / videoout_get_screen_width()), c, 0x0, 0x3, GFX_OP_SET);
+                  y + 14 * ((c * 9) / videoout_get_screen_width()), c, 0x3, 0x2, GFX_OP_SET);
   }
   y += 14 * 3;
   for (int c = 0; c < 256; c++) {
     gfx_draw_char((c * 9) % videoout_get_screen_width(),
-                  y + 14 * ((c * 9) / videoout_get_screen_width()), c, 0x0, 0x2, GFX_OP_SET);
+                  y + 14 * ((c * 9) / videoout_get_screen_width()), c, 0x2, 0x3, GFX_OP_SET);
   }
   y += 14 * 3;
   for (int c = 0; c < 256; c++) {

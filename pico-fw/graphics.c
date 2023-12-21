@@ -61,7 +61,7 @@ void gfx_draw_char(uint32_t x, uint32_t y, uint8_t c, uint8_t active_v, uint8_t 
   for (uint32_t ridx = 0; ridx < 14; ridx++, y++) {
     uint16_t row = get_font_row(c, ridx);
     for (uint32_t cidx = 0; cidx < 9; cidx++) {
-      gfx_update_pixel(x + cidx, y, (row & (1 << (9 - cidx))) ? active_v : inactive_v, op);
+      gfx_update_pixel(x + cidx, y, (row & (1 << (8 - cidx))) ? active_v : inactive_v, op);
     }
   }
 }
