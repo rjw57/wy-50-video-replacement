@@ -34,7 +34,7 @@ static void redraw_terminal(TMT *vt) {
   for (size_t r = 0; r < s->nline; r++) {
     if (s->lines[r]->dirty) {
       for (size_t c = 0; c < s->ncol; c++) {
-        uint8_t fg = 0x3, bg = 0x0;
+        uint8_t fg = 0x2, bg = 0x0;
 
         switch (s->lines[r]->chars[c].a.fg) {
         case TMT_COLOR_BLACK:
@@ -44,6 +44,8 @@ static void redraw_terminal(TMT *vt) {
         case TMT_COLOR_GREEN:
         case TMT_COLOR_YELLOW:
         case TMT_COLOR_BLUE:
+          fg = 0x2;
+          break;
         case TMT_COLOR_MAGENTA:
         case TMT_COLOR_CYAN:
         case TMT_COLOR_WHITE:
@@ -62,14 +64,20 @@ static void redraw_terminal(TMT *vt) {
         case TMT_COLOR_GREEN:
         case TMT_COLOR_YELLOW:
         case TMT_COLOR_BLUE:
+          bg = 0x2;
+          break;
         case TMT_COLOR_MAGENTA:
         case TMT_COLOR_CYAN:
         case TMT_COLOR_WHITE:
-          bg = 0x2;
+          bg = 0x3;
           break;
         default:
           // nop
           break;
+        }
+
+        if (s->lines[r]->chars[c].a.bold) {
+          fg |= 0x1;
         }
 
         if (s->lines[r]->chars[c].a.reverse) {
@@ -135,7 +143,7 @@ int main(void) {
   tmt_write(vt, "Hello, world!\r\n", 0);
 
   while (true) {
-    for(int i=0; i<100; ++i) {
+    for(int i=0; i<128; ++i) {
       int c = getchar_timeout_us(10000);
       if (c == PICO_ERROR_TIMEOUT) {
         break;

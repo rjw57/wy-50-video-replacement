@@ -19,21 +19,15 @@ loop:
 .wrap
 
 % c-sdk {
-// Period of line timing PIO clock (ns). E.g. 50 => clock frequency of 20MHz
-#define SYNC_TIMING_CLOCK_PERIOD_NS 50
-
-// Implied timing PIO frequency
-#define SYNC_TIMING_CLOCK_FREQ (1e9 / SYNC_TIMING_CLOCK_PERIOD_NS)
-
 // Encode a line timing instruction
-#define sync_timing_encode(hsync, vsync, t_ns, side_effect) \
-  ((((hsync) & 0x1) << 31) | (((vsync) & 0x1) << 30) | (((((t_ns) / SYNC_TIMING_CLOCK_PERIOD_NS)-5) & 0x3fff) << 16) | ((side_effect) & 0xffff))
+#define sync_timing_encode(hsync, vsync, t_ns, side_effect, dot_clock_period_ns) \
+  ((((hsync) & 0x1) << 31) | (((vsync) & 0x1) << 30) | (((((uint32_t)((t_ns) / (dot_clock_period_ns)))-5) & 0x3fff) << 16) | ((side_effect) & 0xffff))
 
-static inline void sync_timing_program_init(PIO pio, uint sm, uint offset, uint sync_pin_base) {
+static inline void sync_timing_program_init(PIO pio, uint sm, uint offset, uint sync_pin_base, uint dot_clock_period_ns) {
   pio_sm_config c = sync_timing_program_get_default_config(offset);
   sm_config_set_out_pins(&c, sync_pin_base, 2);
   sm_config_set_out_shift(&c, true, true, 0);
-  sm_config_set_clkdiv(&c, ((float)clock_get_hz(clk_sys)) / SYNC_TIMING_CLOCK_FREQ);
+  sm_config_set_clkdiv(&c, ((float)clock_get_hz(clk_sys)) * dot_clock_period_ns * 1e-9);
   pio_gpio_init(pio, sync_pin_base);
   pio_gpio_init(pio, sync_pin_base+1);
   pio_sm_set_consecutive_pindirs(pio, sm, sync_pin_base, 2, true);
@@ -76,13 +70,13 @@ loop:
 
 % c-sdk {
 static inline void video_output_program_init(
-  PIO pio, uint sm, uint offset, uint video_pin_base, float dot_clock_freq
+  PIO pio, uint sm, uint offset, uint video_pin_base, uint dot_clock_period_ns
 ) {
   pio_sm_config c = video_output_program_get_default_config(offset);
   sm_config_set_out_pins(&c, video_pin_base, 2);
   sm_config_set_set_pins(&c, video_pin_base, 2);
   sm_config_set_out_shift(&c, false, true, 0);
-  sm_config_set_clkdiv(&c, ((float)clock_get_hz(clk_sys)) / (2 * dot_clock_freq));
+  sm_config_set_clkdiv(&c, ((float)clock_get_hz(clk_sys)) * dot_clock_period_ns * 0.5e-9);
   pio_gpio_init(pio, video_pin_base);
   pio_gpio_init(pio, video_pin_base+1);
   pio_sm_set_consecutive_pindirs(pio, sm, video_pin_base, 2, true);

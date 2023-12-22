@@ -18,41 +18,43 @@
 // widen each line. This lets us fit the 720 pixels in with a dot clock being a nice integer
 // multiple of the line sync clock. This reduces noise in the output.
 
-#define LINE_PERIOD_NS 46000       // Period of one line of video (ns)
+#define LINE_PERIOD_NS 44400       // Period of one line of video (ns)
 #define LINES_PER_FRAME 375        // Number of lines in a *frame*
 #define VSYNC_LINES_PER_FRAME 3    // V-sync lines at start of frame
 #define VERT_VISIBLE_START_LINE 22 // Start line of visible data (0-based)
-#define HSYNC_WIDTH_NS 16600       // Line sync pulse width (ns)
-#define VISIBLE_WIDTH_NS 36000     // Period of active video (ns)
+#define HSYNC_WIDTH_NS 16560       // Line sync pulse width (ns)
+#define VISIBLE_WIDTH_NS 34560     // Period of active video (ns)
 
 // Implied period from start of line to start of active video (ns)
 #define BACK_PORCH_WIDTH_NS (LINE_PERIOD_NS - VISIBLE_WIDTH_NS)
 
-// Implied dot frequency. Ideally this is an integer multiple of the sync timing clock frequency.
-#define DOT_CLOCK_FREQ (VISIBLE_DOTS_PER_LINE * (1e9 / VISIBLE_WIDTH_NS))
+// Implied dot period. Ideally this implies a line is an integer number of dots.
+#define DOT_CLOCK_PERIOD_NS (VISIBLE_WIDTH_NS / VISIBLE_DOTS_PER_LINE)
+
+#define SYNC_CLOCK_PERIOD_NS DOT_CLOCK_PERIOD_NS
 
 // Timing program for a blank line
 alignas(8) uint32_t sync_timing_blank_line[] = {
-    sync_timing_encode(1, 0, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP),
+    sync_timing_encode(1, 0, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_BLANK_LINE_LEN                                                                 \
   (sizeof(sync_timing_blank_line) / sizeof(sync_timing_blank_line[0]))
 
 // Timing program for a vsync line
 alignas(8) uint32_t sync_timing_vsync_line[] = {
-    sync_timing_encode(1, 1, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP),
-    sync_timing_encode(0, 1, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP),
+    sync_timing_encode(1, 1, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 1, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_VSYNC_LINE_LEN                                                                 \
   (sizeof(sync_timing_vsync_line) / sizeof(sync_timing_vsync_line[0]))
 
 // Timing program for a visible line
 alignas(16) uint32_t sync_timing_visible_line[] = {
-    sync_timing_encode(1, 0, BACK_PORCH_WIDTH_NS, SIDE_EFFECT_NOP),
-    sync_timing_encode(1, 0, HSYNC_WIDTH_NS - BACK_PORCH_WIDTH_NS, SIDE_EFFECT_SET_TRIGGER),
-    sync_timing_encode(0, 0, 1000, SIDE_EFFECT_CLEAR_TRIGGER),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS - 1000, SIDE_EFFECT_NOP),
+    sync_timing_encode(1, 0, BACK_PORCH_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(1, 0, HSYNC_WIDTH_NS - BACK_PORCH_WIDTH_NS, SIDE_EFFECT_SET_TRIGGER, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, 16 * SYNC_CLOCK_PERIOD_NS, SIDE_EFFECT_CLEAR_TRIGGER, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS - (16 * SYNC_CLOCK_PERIOD_NS), SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_VISIBLE_LINE_LEN                                                               \
   (sizeof(sync_timing_visible_line) / sizeof(sync_timing_visible_line[0]))
@@ -157,6 +159,12 @@ static void sync_timing_dma_handler() {
 // This function contains all static asserts. It's never called but the compiler will raise a
 // diagnostic if the assertions fail.
 static inline void all_static_asserts() {
+  // Dot clock period should be integer number of nanoseconds.
+  static_assert(VISIBLE_WIDTH_NS % VISIBLE_DOTS_PER_LINE == 0);
+
+  // Dot clock should evenly divide the line.
+  static_assert(LINE_PERIOD_NS % DOT_CLOCK_PERIOD_NS == 0);
+
   // Check that the number of *visible* dots per line is a multiple of 16.
   static_assert((VISIBLE_DOTS_PER_LINE & 0xf) == 0);
 
@@ -189,12 +197,13 @@ void videoout_init(PIO pio, uint sync_pin_base, uint video_pin_base) {
   video_output_offset = pio_add_program(pio_instance, &video_output_program);
   video_output_sm = pio_claim_unused_sm(pio_instance, true);
   video_output_program_init(pio_instance, video_output_sm, video_output_offset, video_pin_base,
-                            DOT_CLOCK_FREQ);
+                            DOT_CLOCK_PERIOD_NS);
 
   // Configure and enable timing program.
   sync_timing_offset = pio_add_program(pio_instance, &sync_timing_program);
   sync_timing_sm = pio_claim_unused_sm(pio_instance, true);
-  sync_timing_program_init(pio_instance, sync_timing_sm, sync_timing_offset, sync_pin_base);
+  sync_timing_program_init(pio_instance, sync_timing_sm, sync_timing_offset, sync_pin_base,
+                           SYNC_CLOCK_PERIOD_NS);
 
   // Configure frame timing DMA channel.
   sync_timing_dma_channel = dma_claim_unused_channel(true);
