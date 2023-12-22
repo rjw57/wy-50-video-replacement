@@ -132,8 +132,10 @@ int main(void) {
   vt = tmt_open(videoout_get_screen_height() / 14, videoout_get_screen_width() / 9, term_callback,
                 NULL, NULL);
 
+  tmt_write(vt, "Hello, world!\r\n", 0);
+
   while (true) {
-    while (true) {
+    for(int i=0; i<100; ++i) {
       int c = getchar_timeout_us(10000);
       if (c == PICO_ERROR_TIMEOUT) {
         break;
