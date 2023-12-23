@@ -12,6 +12,8 @@ $ cmake --build build --parallel
 
 The `libtmt` library is originally from https://github.com/deadpixi/libtmt.
 
+The `libtst` library is originally from https://www.freedesktop.org/wiki/Software/kmscon/libtsm/.
+
 Connect to serial console via:
 
 ```sh

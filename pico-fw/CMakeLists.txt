@@ -20,18 +20,17 @@ endif()
 add_executable(
   firmware
   firmware.c videoout.c graphics.c
-  vendor/libtmt/tmt.c
-)
-
-set_source_files_properties(
-  vendor/libtmt/tmt.c
-  PROPERTIES
-  COMPILE_OPTIONS "-Wno-unused-variable"
+  vendor/libtsm/shl_htable.c
+  vendor/libtsm/tsm_screen.c
+  vendor/libtsm/tsm_unicode.c
+  vendor/libtsm/tsm_vte.c
+  vendor/libtsm/tsm_vte_charsets.c
+  vendor/libtsm/external/wcwidth.c
 )
 
 target_include_directories(
   firmware
-  PUBLIC vendor/libtmt
+  PUBLIC vendor/libtsm
 )
 
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/videoout.pio)
