@@ -1,4 +1,3 @@
-#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +22,13 @@ bool terminal_dirty = false, cursor_moved = false;
 
 int cursor_r = -1, cursor_c = -1;
 
-const wchar_t* acs_chars = L"\x1a\x1b\x18\x19\xdb\x04\xb1\xf8##\xd9\xbf\xda\xc0\xc5~-\xc4-_\xc3\xb4\xc1\xc2\xb3\xf3\xf2\xe3!\x9c\x07";
+const wchar_t *acs_chars = L"\x1a\x1b\x18\x19\xdb\x04\xb1\xf8##\xd9\xbf\xda\xc0\xc5~-\xc4-_"
+                           L"\xc3\xb4\xc1\xc2\xb3\xf3\xf2\xe3!\x9c\x07";
+
+uint32_t frame_counter = 0;
+uint32_t last_cursor_draw = 0;
+
+static void vblank_callback() { frame_counter++; }
 
 inline static uint8_t map_wchar(wchar_t c) {
   // ASCII subset
@@ -36,6 +41,15 @@ inline static uint8_t map_wchar(wchar_t c) {
 }
 
 static void redraw_terminal(TMT *vt) {
+  if ((cursor_r >= 0) && ((frame_counter & 0x1f) == 0) && (last_cursor_draw != frame_counter)) {
+    for (int y = 12; y < 14; y++) {
+      for (int x = 0; x < 9; x++) {
+        gfx_update_pixel(x + cursor_c * 9, y + cursor_r * 14, 0x2, GFX_OP_XOR);
+      }
+    }
+    last_cursor_draw = frame_counter;
+  }
+
   if (!terminal_dirty && !cursor_moved) {
     return;
   }
@@ -106,7 +120,6 @@ static void redraw_terminal(TMT *vt) {
 
   cursor_r = c->r;
   cursor_c = c->c;
-  gfx_draw_char(cursor_c * 9, cursor_r * 14, ' ', 0x0, 0x2, GFX_OP_XOR);
 
   tmt_clean(vt);
   terminal_dirty = false;
@@ -148,6 +161,8 @@ int main(void) {
   gfx_set_frame_buffer(frame_buffer, videoout_get_screen_stride());
 
   memset(frame_buffer, 0xff, videoout_get_screen_stride() * videoout_get_screen_height());
+
+  videoout_set_vblank_callback(vblank_callback);
 
   videoout_start();
 

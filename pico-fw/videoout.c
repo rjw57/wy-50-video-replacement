@@ -36,7 +36,8 @@
 // Timing program for a blank line
 alignas(8) uint32_t sync_timing_blank_line[] = {
     sync_timing_encode(1, 0, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP,
+                       SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_BLANK_LINE_LEN                                                                 \
   (sizeof(sync_timing_blank_line) / sizeof(sync_timing_blank_line[0]))
@@ -44,7 +45,8 @@ alignas(8) uint32_t sync_timing_blank_line[] = {
 // Timing program for a vsync line
 alignas(8) uint32_t sync_timing_vsync_line[] = {
     sync_timing_encode(1, 1, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 1, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 1, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP,
+                       SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_VSYNC_LINE_LEN                                                                 \
   (sizeof(sync_timing_vsync_line) / sizeof(sync_timing_vsync_line[0]))
@@ -52,9 +54,12 @@ alignas(8) uint32_t sync_timing_vsync_line[] = {
 // Timing program for a visible line
 alignas(16) uint32_t sync_timing_visible_line[] = {
     sync_timing_encode(1, 0, BACK_PORCH_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(1, 0, HSYNC_WIDTH_NS - BACK_PORCH_WIDTH_NS, SIDE_EFFECT_SET_TRIGGER, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, 16 * SYNC_CLOCK_PERIOD_NS, SIDE_EFFECT_CLEAR_TRIGGER, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS - (16 * SYNC_CLOCK_PERIOD_NS), SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(1, 0, HSYNC_WIDTH_NS - BACK_PORCH_WIDTH_NS, SIDE_EFFECT_SET_TRIGGER,
+                       SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, 16 * SYNC_CLOCK_PERIOD_NS, SIDE_EFFECT_CLEAR_TRIGGER,
+                       SYNC_CLOCK_PERIOD_NS),
+    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS - (16 * SYNC_CLOCK_PERIOD_NS),
+                       SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
 };
 #define SYNC_TIMING_VISIBLE_LINE_LEN                                                               \
   (sizeof(sync_timing_visible_line) / sizeof(sync_timing_visible_line[0]))
@@ -152,6 +157,11 @@ static void sync_timing_dma_handler() {
 
     // Release the vblank semaphore which will wake anything waiting on it.
     sem_release(&vblank_semaphore);
+
+    // Call any vsync callback
+    if (vblank_callback != NULL) {
+        vblank_callback();
+    }
 
     phase = 0;
     break;
