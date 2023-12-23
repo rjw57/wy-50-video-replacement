@@ -19,22 +19,35 @@ uint8_t *frame_buffer;
 
 TMT *vt;
 
-bool terminal_dirty = false;
+bool terminal_dirty = false, cursor_moved = false;
 
 int cursor_r = -1, cursor_c = -1;
 
+const wchar_t* acs_chars = L"\x1a\x1b\x18\x19\xdb\x04\xb1\xf8##\xd9\xbf\xda\xc0\xc5~-\xc4-_\xc3\xb4\xc2\xc2\xb3\xf3\xf2\xe3!\x9c\x07";
+
+inline static uint8_t map_wchar(wchar_t c) {
+  // ASCII subset
+  if (!(c & ~0x7f) && (c >= 0x20)) {
+    return c;
+  }
+
+  // Fall-back.
+  return ' ';
+}
+
 static void redraw_terminal(TMT *vt) {
+  if (!terminal_dirty && !cursor_moved) {
+    return;
+  }
+
   const TMTSCREEN *s = tmt_screen(vt);
   const TMTPOINT *c = tmt_cursor(vt);
 
-  if (cursor_r >= 0) {
-    gfx_draw_char(cursor_c * 9, cursor_r * 14, 219, 0x3, 0x0, GFX_OP_XOR);
-  }
-
   for (size_t r = 0; r < s->nline; r++) {
-    if (s->lines[r]->dirty) {
+    if (s->lines[r]->dirty || (cursor_r == r) || (c->r == r)) {
       for (size_t c = 0; c < s->ncol; c++) {
         uint8_t fg = 0x2, bg = 0x0;
+        wchar_t ch = s->lines[r]->chars[c].c;
 
         switch (s->lines[r]->chars[c].a.fg) {
         case TMT_COLOR_BLACK:
@@ -85,17 +98,19 @@ static void redraw_terminal(TMT *vt) {
           fg = bg;
           bg = tmp;
         }
-        gfx_draw_char(c * 9, r * 14, s->lines[r]->chars[c].c, fg, bg, GFX_OP_SET);
+
+        gfx_draw_char(c * 9, r * 14, ch & 0xff, fg, bg, GFX_OP_SET);
       }
     }
   }
 
   cursor_r = c->r;
   cursor_c = c->c;
-  gfx_draw_char(cursor_c * 9, cursor_r * 14, 219, 0x3, 0x0, GFX_OP_XOR);
+  gfx_draw_char(cursor_c * 9, cursor_r * 14, ' ', 0x0, 0x2, GFX_OP_XOR);
 
   tmt_clean(vt);
   terminal_dirty = false;
+  cursor_moved = false;
 }
 
 void term_callback(tmt_msg_t m, TMT *vt, const void *a, void *p) {
@@ -112,12 +127,11 @@ void term_callback(tmt_msg_t m, TMT *vt, const void *a, void *p) {
     break;
 
   case TMT_MSG_ANSWER:
-    // nop
+    printf("%s", (const char *)a);
     break;
 
   case TMT_MSG_MOVED:
-    terminal_dirty = true;
-    // printf("cursor is now at %zd,%zd\n", c->r, c->c);
+    cursor_moved = true;
     break;
 
   case TMT_MSG_CURSOR:
@@ -138,12 +152,12 @@ int main(void) {
   videoout_start();
 
   vt = tmt_open(videoout_get_screen_height() / 14, videoout_get_screen_width() / 9, term_callback,
-                NULL, NULL);
+                NULL, acs_chars);
 
   tmt_write(vt, "Hello, world!\r\n", 0);
 
   while (true) {
-    for(int i=0; i<128; ++i) {
+    for (int i = 0; i < 128; ++i) {
       int c = getchar_timeout_us(10000);
       if (c == PICO_ERROR_TIMEOUT) {
         break;
@@ -152,9 +166,7 @@ int main(void) {
       tmt_write(vt, &tc, 1);
     }
 
-    if (terminal_dirty) {
-      redraw_terminal(vt);
-    }
+    redraw_terminal(vt);
   }
 
   tmt_close(vt);

@@ -31,7 +31,7 @@ which is convenient.
 | 3   | Orange         | Orange        | !DIM   | 6         | GP4        |
 | 4   | Yellow         | Yellow        | HSYNC  | 5         | GP3        |
 | 5   | Green          | Green         | VSYNC  | 4         | GP2        |
-| 8   | Red            | Red           | +5V    | 40 (VBUS) | -          |
+| 8   | Red            | Red           | +5V    | 39 (VSYS) | -          |
 
 Ideally the VIDEO, !DIM, HSYNC and VSYNC signals will be buffered by any convenient 74xx or
 4000-series logic. For example, the WY-50 terminal itself uses a 7408 quad AND gate to buffer the

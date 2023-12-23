@@ -110,8 +110,6 @@ static inline dma_channel_config get_sync_timing_dma_channel_config(uint dma_cha
 static void sync_timing_dma_handler() {
   static uint phase = 0;
 
-  dma_channel_acknowledge_irq0(sync_timing_dma_channel);
-
   switch (phase) {
   case 0:
     // VSYNC
@@ -151,9 +149,15 @@ static void sync_timing_dma_handler() {
         sync_timing_dma_channel, sync_timing_blank_line,
         SYNC_TIMING_BLANK_LINE_LEN *
             (LINES_PER_FRAME - VERT_VISIBLE_START_LINE - VISIBLE_LINES_PER_FRAME));
+
+    // Release the vblank semaphore which will wake anything waiting on it.
+    sem_release(&vblank_semaphore);
+
     phase = 0;
     break;
   }
+
+  dma_channel_acknowledge_irq0(sync_timing_dma_channel);
 }
 
 // This function contains all static asserts. It's never called but the compiler will raise a
