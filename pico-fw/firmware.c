@@ -6,6 +6,7 @@
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
 
+#include "cp437_map.h"
 #include "graphics.h"
 #include "videoout.h"
 
@@ -29,6 +30,36 @@ static void term_write_cb(struct tsm_vte *vte, const char *u8, size_t len, void 
   fwrite(u8, 1, len, stdout);
 }
 
+static uint8_t codepoint_to_ch(uint32_t cp) {
+  if ((cp >= 0x20) && (cp < 0x7f)) {
+    return cp;
+  }
+  uint16_t *map_row = cp437_map[cp & 0xff];
+  for (int i = 0; i < CP437_ENTRY_LEN; i++) {
+    uint16_t entry = map_row[i];
+    if ((entry >> 8) == (cp >> 8)) {
+      return entry & 0xff;
+    }
+  }
+  return 0;
+}
+
+static int rgb_to_px(uint8_t r, uint8_t g, uint8_t b) {
+  uint32_t lum = 0;
+  lum += (uint32_t)(0.2126 * (1 << 16)) * (uint32_t)r;
+  lum += (uint32_t)(0.7152 * (1 << 16)) * (uint32_t)g;
+  lum += (uint32_t)(0.0722 * (1 << 16)) * (uint32_t)b;
+  lum >>= 16;
+
+  if (lum < 10) {
+    return 0;
+  } else if (lum < 200) {
+    return 2;
+  } else {
+    return 3;
+  }
+}
+
 static int term_draw_cb(struct tsm_screen *con, uint32_t id, const uint32_t *ch, size_t len,
                         unsigned int width, unsigned int posx, unsigned int posy,
                         const struct tsm_screen_attr *attr, tsm_age_t age, void *data) {
@@ -36,23 +67,22 @@ static int term_draw_cb(struct tsm_screen *con, uint32_t id, const uint32_t *ch,
     return 0;
   }
 
-  if ((id < 0x20) || (id > 0x7f)) {
-    id = 0;
-  }
-
+  uint8_t char_code = codepoint_to_ch(id);
   uint8_t fg = 0x2, bg = 0x0;
+
+  fg = rgb_to_px(attr->fr, attr->fg, attr->fb);
+  bg = rgb_to_px(attr->br, attr->bg, attr->bb);
 
   if (attr->bold) {
     fg |= 0x1;
   }
 
   if (attr->inverse) {
-    uint8_t tmp = fg;
-    fg = bg;
-    bg = tmp;
+    fg ^= 0x2;
+    bg ^= 0x2;
   }
 
-  gfx_draw_char(posx * 9, posy * 14, id & 0xff, fg, bg, GFX_OP_SET);
+  gfx_draw_char(posx * 9, posy * 14, char_code, fg, bg, GFX_OP_SET);
 
   return 0;
 }

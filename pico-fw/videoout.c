@@ -22,7 +22,7 @@
 #define LINES_PER_FRAME 375        // Number of lines in a *frame*
 #define VSYNC_LINES_PER_FRAME 3    // V-sync lines at start of frame
 #define VERT_VISIBLE_START_LINE 22 // Start line of visible data (0-based)
-#define HSYNC_WIDTH_NS 16560       // Line sync pulse width (ns)
+#define HSYNC_WIDTH_NS 16608       // Line sync pulse width (ns)
 #define VISIBLE_WIDTH_NS 34560     // Period of active video (ns)
 
 // Implied period from start of line to start of active video (ns)
