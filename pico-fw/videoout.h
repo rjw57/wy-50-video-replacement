@@ -1,6 +1,12 @@
 #include "pico/types.h"
 #include "hardware/pio.h"
 
+// Opaque video mode type.
+typedef struct videoout_mode videoout_mode_t;
+
+// Standard modes.
+extern videoout_mode_t videoout_mode_720_350;
+
 // Callback to be notified of video blanking period start.
 typedef void (*videoout_vblank_callback_t) (void);
 
@@ -12,8 +18,14 @@ typedef void (*videoout_vblank_callback_t) (void);
 // The !DIM GPIO is video_pin_base, VIDEO is video_pin_base + 1.
 void videoout_init(PIO pio, uint sync_pin_base, uint video_pin_base);
 
-// Start TV-out. videoout_init() must have been called first.
+// Must be called with output stopped. Return true if mode set successful.
+bool videoout_set_mode(const videoout_mode_t *mode);
+
+// Start video out. videoout_init() must have been called first.
 void videoout_start(void);
+
+// Stop video out.
+void videoout_stop(void);
 
 // Cleanup TV-out after videoout_init().
 void videoout_cleanup(void);

@@ -10,59 +10,125 @@
 #include "videoout.h"
 #include "videoout.pio.h"
 
-// Resolution
-#define VISIBLE_DOTS_PER_LINE 720   // Horizontal resolution
-#define VISIBLE_LINES_PER_FRAME 350 // Number of visible lines per frame
+struct videoout_mode {
+  uint visible_dots_per_line;
+  uint visible_lines_per_frame;
 
-// Signal timing. This is tweaked slightly from the mode used by the terminal itself to slightly
-// widen each line. This lets us fit the 720 pixels in with a dot clock being a nice integer
-// multiple of the line sync clock. This reduces noise in the output.
+  uint line_period_ns;
+  uint lines_per_frame;
+  uint vsync_lines_per_frame;
+  uint visible_start_line;
 
-#define LINE_PERIOD_NS 44400       // Period of one line of video (ns)
-#define LINES_PER_FRAME 375        // Number of lines in a *frame*
-#define VSYNC_LINES_PER_FRAME 3    // V-sync lines at start of frame
-#define VERT_VISIBLE_START_LINE 22 // Start line of visible data (0-based)
-#define HSYNC_WIDTH_NS 16608       // Line sync pulse width (ns)
-#define VISIBLE_WIDTH_NS 34560     // Period of active video (ns)
+  uint hsync_width_ns;
+  uint visible_width_ns;
+};
 
-// Implied period from start of line to start of active video (ns)
-#define BACK_PORCH_WIDTH_NS (LINE_PERIOD_NS - VISIBLE_WIDTH_NS)
+// This is tweaked slightly from the mode used by the terminal itself to slightly widen each line.
+// This lets us fit the 720 pixels in with a dot clock being a nice integer multiple of the line
+// sync clock. This reduces noise in the output.
+videoout_mode_t videoout_mode_720_350 = {
+    .visible_dots_per_line = 720,
+    .visible_lines_per_frame = 350,
 
-// Implied dot period. Ideally this implies a line is an integer number of dots.
-#define DOT_CLOCK_PERIOD_NS (VISIBLE_WIDTH_NS / VISIBLE_DOTS_PER_LINE)
+    .line_period_ns = 44400,
+    .lines_per_frame = 375,
+    .vsync_lines_per_frame = 3,
+    .visible_start_line = 22,
 
-#define SYNC_CLOCK_PERIOD_NS DOT_CLOCK_PERIOD_NS
+    .hsync_width_ns = 16608,
+    .visible_width_ns = 34560,
+};
+
+videoout_mode_t videoout_mode_800_350 = {
+    .visible_dots_per_line = 800,
+    .visible_lines_per_frame = 350,
+
+    .line_period_ns = 44376,
+    .lines_per_frame = 375,
+    .vsync_lines_per_frame = 3,
+    .visible_start_line = 22,
+
+    .hsync_width_ns = 16641,
+    .visible_width_ns = 34400,
+};
+
+const videoout_mode_t* default_mode = &videoout_mode_720_350;
+
+static bool videoout_is_running = false;
+static const videoout_mode_t *active_mode = NULL;
+static uint video_pin_base, sync_pin_base;
+
+static inline uint mode_back_porch_width_ns(const videoout_mode_t *m) {
+  return m->line_period_ns - m->visible_width_ns;
+}
+
+static inline uint mode_dot_clock_period_ns(const videoout_mode_t *m) {
+  return m->visible_width_ns / m->visible_dots_per_line;
+}
+
+static bool mode_is_valid(const videoout_mode_t *m) {
+  if (m->visible_width_ns % m->visible_dots_per_line != 0) {
+    return false;
+  }
+  if (m->line_period_ns % mode_dot_clock_period_ns(m) != 0) {
+    return false;
+  }
+  if ((m->visible_dots_per_line & 0xf) != 0) {
+    return false;
+  }
+  if (mode_back_porch_width_ns(m) >= m->hsync_width_ns) {
+    return false;
+  }
+  if (m->lines_per_frame <= m->vsync_lines_per_frame + m->vsync_lines_per_frame) {
+    return false;
+  }
+  if (m->lines_per_frame <= m->visible_start_line + m->visible_lines_per_frame) {
+    return false;
+  }
+
+  return true;
+}
 
 // Timing program for a blank line
-alignas(8) uint32_t sync_timing_blank_line[] = {
-    sync_timing_encode(1, 0, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP,
-                       SYNC_CLOCK_PERIOD_NS),
-};
+alignas(8) uint32_t sync_timing_blank_line[2];
 #define SYNC_TIMING_BLANK_LINE_LEN                                                                 \
   (sizeof(sync_timing_blank_line) / sizeof(sync_timing_blank_line[0]))
 
 // Timing program for a vsync line
-alignas(8) uint32_t sync_timing_vsync_line[] = {
-    sync_timing_encode(1, 1, HSYNC_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 1, LINE_PERIOD_NS - HSYNC_WIDTH_NS, SIDE_EFFECT_NOP,
-                       SYNC_CLOCK_PERIOD_NS),
-};
+alignas(8) uint32_t sync_timing_vsync_line[2];
 #define SYNC_TIMING_VSYNC_LINE_LEN                                                                 \
   (sizeof(sync_timing_vsync_line) / sizeof(sync_timing_vsync_line[0]))
 
 // Timing program for a visible line
-alignas(16) uint32_t sync_timing_visible_line[] = {
-    sync_timing_encode(1, 0, BACK_PORCH_WIDTH_NS, SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(1, 0, HSYNC_WIDTH_NS - BACK_PORCH_WIDTH_NS, SIDE_EFFECT_SET_TRIGGER,
-                       SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, 16 * SYNC_CLOCK_PERIOD_NS, SIDE_EFFECT_CLEAR_TRIGGER,
-                       SYNC_CLOCK_PERIOD_NS),
-    sync_timing_encode(0, 0, LINE_PERIOD_NS - HSYNC_WIDTH_NS - (16 * SYNC_CLOCK_PERIOD_NS),
-                       SIDE_EFFECT_NOP, SYNC_CLOCK_PERIOD_NS),
-};
+alignas(16) uint32_t sync_timing_visible_line[4];
 #define SYNC_TIMING_VISIBLE_LINE_LEN                                                               \
   (sizeof(sync_timing_visible_line) / sizeof(sync_timing_visible_line[0]))
+
+// Must be called when video output has been stopped.
+static inline void mode_setup(const videoout_mode_t *m) {
+  uint dot_clock_period_ns = mode_dot_clock_period_ns(m);
+
+  sync_timing_blank_line[0] =
+      sync_timing_encode(1, 0, m->hsync_width_ns, SIDE_EFFECT_NOP, dot_clock_period_ns);
+  sync_timing_blank_line[1] = sync_timing_encode(0, 0, m->line_period_ns - m->hsync_width_ns,
+                                                 SIDE_EFFECT_NOP, dot_clock_period_ns);
+
+  sync_timing_vsync_line[0] =
+      sync_timing_encode(1, 1, m->hsync_width_ns, SIDE_EFFECT_NOP, dot_clock_period_ns);
+  sync_timing_vsync_line[1] = sync_timing_encode(0, 1, m->line_period_ns - m->hsync_width_ns,
+                                                 SIDE_EFFECT_NOP, dot_clock_period_ns);
+
+  sync_timing_visible_line[0] =
+      sync_timing_encode(1, 0, mode_back_porch_width_ns(m), SIDE_EFFECT_NOP, dot_clock_period_ns);
+  sync_timing_visible_line[1] =
+      sync_timing_encode(1, 0, m->hsync_width_ns - mode_back_porch_width_ns(m),
+                         SIDE_EFFECT_SET_TRIGGER, dot_clock_period_ns);
+  sync_timing_visible_line[2] = sync_timing_encode(0, 0, 16 * dot_clock_period_ns,
+                                                   SIDE_EFFECT_CLEAR_TRIGGER, dot_clock_period_ns);
+  sync_timing_visible_line[3] =
+      sync_timing_encode(0, 0, m->line_period_ns - m->hsync_width_ns - (16 * dot_clock_period_ns),
+                         SIDE_EFFECT_NOP, dot_clock_period_ns);
+}
 
 // Semaphore used to signal vblank.
 semaphore_t vblank_semaphore;
@@ -86,6 +152,9 @@ static dma_channel_config sync_timing_dma_channel_config;
 
 // Video data DMA channel number.
 static uint video_dma_channel;
+
+// Phase of frame.
+static uint frame_phase = 0;
 
 // Configure a DMA channel to copy the frame buffer into the video output PIO state machine.
 static inline dma_channel_config
@@ -113,78 +182,78 @@ static inline dma_channel_config get_sync_timing_dma_channel_config(uint dma_cha
 
 // DMA handler called when each phase of a frame timing is finished.
 static void sync_timing_dma_handler() {
-  static uint phase = 0;
 
-  switch (phase) {
+  dma_channel_acknowledge_irq0(sync_timing_dma_channel);
+
+  if (active_mode == NULL) {
+    return;
+  }
+
+  switch (frame_phase) {
   case 0:
+    if (!videoout_is_running) {
+      break;
+    }
+
     // VSYNC
     channel_config_set_ring(&sync_timing_dma_channel_config, false, 3);
     dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
     dma_channel_transfer_from_buffer_now(sync_timing_dma_channel, sync_timing_vsync_line,
-                                         SYNC_TIMING_VSYNC_LINE_LEN * VSYNC_LINES_PER_FRAME);
+                                         SYNC_TIMING_VSYNC_LINE_LEN *
+                                             active_mode->vsync_lines_per_frame);
 
     // Start frame buffer transfer for the next field.
     dma_channel_transfer_from_buffer_now(video_dma_channel, (void *)atomic_load(&frame_buffer_ptr),
-                                         VISIBLE_LINES_PER_FRAME * (VISIBLE_DOTS_PER_LINE >> 4));
+                                         active_mode->visible_lines_per_frame *
+                                             (active_mode->visible_dots_per_line >> 4));
 
-    phase = 1;
+    frame_phase = 1;
     break;
   case 1:
-    // blank line
-    channel_config_set_ring(&sync_timing_dma_channel_config, false, 3);
-    dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
-    dma_channel_transfer_from_buffer_now(sync_timing_dma_channel, sync_timing_blank_line,
-                                         SYNC_TIMING_BLANK_LINE_LEN *
-                                             (VERT_VISIBLE_START_LINE - VSYNC_LINES_PER_FRAME));
-    phase = 2;
-    break;
-  case 2:
-    // visible line
-    channel_config_set_ring(&sync_timing_dma_channel_config, false, 4);
-    dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
-    dma_channel_transfer_from_buffer_now(sync_timing_dma_channel, sync_timing_visible_line,
-                                         SYNC_TIMING_VISIBLE_LINE_LEN * VISIBLE_LINES_PER_FRAME);
-    phase = 3;
-    break;
-  case 3:
     // blank line
     channel_config_set_ring(&sync_timing_dma_channel_config, false, 3);
     dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
     dma_channel_transfer_from_buffer_now(
         sync_timing_dma_channel, sync_timing_blank_line,
         SYNC_TIMING_BLANK_LINE_LEN *
-            (LINES_PER_FRAME - VERT_VISIBLE_START_LINE - VISIBLE_LINES_PER_FRAME));
+            (active_mode->visible_start_line - active_mode->vsync_lines_per_frame));
+    frame_phase = 2;
+    break;
+  case 2:
+    // visible line
+    channel_config_set_ring(&sync_timing_dma_channel_config, false, 4);
+    dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
+    dma_channel_transfer_from_buffer_now(sync_timing_dma_channel, sync_timing_visible_line,
+                                         SYNC_TIMING_VISIBLE_LINE_LEN *
+                                             active_mode->visible_lines_per_frame);
+    frame_phase = 3;
+    break;
+  case 3:
+    // blank line
+    channel_config_set_ring(&sync_timing_dma_channel_config, false, 3);
+    dma_channel_set_config(sync_timing_dma_channel, &sync_timing_dma_channel_config, false);
+    dma_channel_transfer_from_buffer_now(sync_timing_dma_channel, sync_timing_blank_line,
+                                         SYNC_TIMING_BLANK_LINE_LEN *
+                                             (active_mode->lines_per_frame -
+                                              active_mode->visible_start_line -
+                                              active_mode->visible_lines_per_frame));
 
     // Release the vblank semaphore which will wake anything waiting on it.
     sem_release(&vblank_semaphore);
 
     // Call any vsync callback
     if (vblank_callback != NULL) {
-        vblank_callback();
+      vblank_callback();
     }
 
-    phase = 0;
+    frame_phase = 0;
     break;
   }
-
-  dma_channel_acknowledge_irq0(sync_timing_dma_channel);
 }
 
 // This function contains all static asserts. It's never called but the compiler will raise a
 // diagnostic if the assertions fail.
 static inline void all_static_asserts() {
-  // Dot clock period should be integer number of nanoseconds.
-  static_assert(VISIBLE_WIDTH_NS % VISIBLE_DOTS_PER_LINE == 0);
-
-  // Dot clock should evenly divide the line.
-  static_assert(LINE_PERIOD_NS % DOT_CLOCK_PERIOD_NS == 0);
-
-  // Check that the number of *visible* dots per line is a multiple of 16.
-  static_assert((VISIBLE_DOTS_PER_LINE & 0xf) == 0);
-
-  // Our timing program assumes this.
-  static_assert(BACK_PORCH_WIDTH_NS < HSYNC_WIDTH_NS);
-
   // Statically assert alignment and length of timing programs. Alignment is necessary to allow DMA
   // in ring mode and the length needs to be known because we need to set the number of significan
   // bits in ring mode.
@@ -194,30 +263,26 @@ static inline void all_static_asserts() {
   static_assert(SYNC_TIMING_VISIBLE_LINE_LEN == 4);
   static_assert(alignof(sync_timing_vsync_line) == sizeof(sync_timing_vsync_line));
   static_assert(SYNC_TIMING_VSYNC_LINE_LEN == 2);
-
-  // Vertical timing must make sense too.
-  static_assert(LINES_PER_FRAME > (VSYNC_LINES_PER_FRAME + VISIBLE_LINES_PER_FRAME));
-  static_assert(LINES_PER_FRAME > (VERT_VISIBLE_START_LINE + VISIBLE_LINES_PER_FRAME));
 }
 
-void videoout_init(PIO pio, uint sync_pin_base, uint video_pin_base) {
+void videoout_init(PIO pio, uint sync_pin_base_, uint video_pin_base_) {
+  videoout_is_running = false;
+
   // Record which PIO instance is used.
   pio_instance = pio;
 
   // Ensure IRQ 4 of the PIO is clear
   pio_interrupt_clear(pio_instance, 4);
 
-  // Configure and enable output program
+  // Configure output program
   video_output_offset = pio_add_program(pio_instance, &video_output_program);
   video_output_sm = pio_claim_unused_sm(pio_instance, true);
-  video_output_program_init(pio_instance, video_output_sm, video_output_offset, video_pin_base,
-                            DOT_CLOCK_PERIOD_NS);
+  video_pin_base = video_pin_base_;
 
-  // Configure and enable timing program.
+  // Configure timing program.
   sync_timing_offset = pio_add_program(pio_instance, &sync_timing_program);
   sync_timing_sm = pio_claim_unused_sm(pio_instance, true);
-  sync_timing_program_init(pio_instance, sync_timing_sm, sync_timing_offset, sync_pin_base,
-                           SYNC_CLOCK_PERIOD_NS);
+  sync_pin_base = sync_pin_base_;
 
   // Configure frame timing DMA channel.
   sync_timing_dma_channel = dma_claim_unused_channel(true);
@@ -233,20 +298,55 @@ void videoout_init(PIO pio, uint sync_pin_base, uint video_pin_base) {
   dma_channel_set_config(video_dma_channel, &video_dma_channel_config, false);
   dma_channel_set_write_addr(video_dma_channel, &pio_instance->txf[video_output_sm], false);
 
+  videoout_set_mode(default_mode);
+
   // Enable interrupt handler for frame timing.
   irq_set_exclusive_handler(DMA_IRQ_0, sync_timing_dma_handler);
+  irq_set_enabled(DMA_IRQ_0, true);
+}
+
+bool videoout_set_mode(const videoout_mode_t *mode) {
+  if(videoout_is_running) { return false; }
+  if(!mode_is_valid(mode)) { return false; }
+  mode_setup(mode);
+  active_mode = mode;
+  return true;
 }
 
 void videoout_start(void) {
+  if (videoout_is_running || (active_mode == NULL)) {
+    return;
+  }
+
   sem_init(&vblank_semaphore, 0, 1);
 
-  pio_sm_put(pio_instance, video_output_sm, VISIBLE_DOTS_PER_LINE - 1);
+  video_output_program_init(pio_instance, video_output_sm, video_output_offset, video_pin_base,
+                            mode_dot_clock_period_ns(active_mode));
+  sync_timing_program_init(pio_instance, sync_timing_sm, sync_timing_offset, sync_pin_base,
+                           mode_dot_clock_period_ns(active_mode));
+
+  pio_sm_restart(pio_instance, video_output_sm);
+  pio_sm_put(pio_instance, video_output_sm, active_mode->visible_dots_per_line - 1);
   pio_sm_set_enabled(pio_instance, video_output_sm, true);
+  pio_sm_restart(pio_instance, sync_timing_sm);
   pio_sm_set_enabled(pio_instance, sync_timing_sm, true);
 
   // Start frame timing.
-  irq_set_enabled(DMA_IRQ_0, true);
+  videoout_is_running = true;
+  frame_phase = 0;
   sync_timing_dma_handler();
+}
+
+void videoout_stop(void) {
+  if (!videoout_is_running) {
+    return;
+  }
+
+  videoout_is_running = false;
+  dma_channel_wait_for_finish_blocking(video_dma_channel);
+
+  pio_sm_set_enabled(pio_instance, video_output_sm, false);
+  pio_sm_set_enabled(pio_instance, sync_timing_sm, false);
 }
 
 void videoout_cleanup(void) {
@@ -268,11 +368,17 @@ void videoout_set_vblank_callback(videoout_vblank_callback_t callback) {
   vblank_callback = callback;
 }
 
-uint videoout_get_screen_width(void) { return VISIBLE_DOTS_PER_LINE; }
+uint videoout_get_screen_width(void) {
+  return (active_mode == NULL) ? 0 : active_mode->visible_dots_per_line;
+}
 
-uint videoout_get_screen_height(void) { return VISIBLE_LINES_PER_FRAME; }
+uint videoout_get_screen_height(void) {
+  return (active_mode == NULL) ? 0 : active_mode->visible_lines_per_frame;
+}
 
-uint videoout_get_screen_stride(void) { return (VISIBLE_DOTS_PER_LINE >> 4) << 2; }
+uint videoout_get_screen_stride(void) {
+  return (active_mode == NULL) ? 0 : (active_mode->visible_dots_per_line >> 4) << 2;
+}
 
 void videoout_set_frame_buffer(void *frame_buffer) {
   atomic_store(&frame_buffer_ptr, (uintptr_t)frame_buffer);
