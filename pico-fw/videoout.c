@@ -39,9 +39,9 @@ videoout_mode_t videoout_mode_720_350 = {
     .visible_width_ns = 34560,
 };
 
-videoout_mode_t videoout_mode_800_350 = {
+videoout_mode_t videoout_mode_800_336 = {
     .visible_dots_per_line = 800,
-    .visible_lines_per_frame = 350,
+    .visible_lines_per_frame = 336,
 
     .line_period_ns = 44376,
     .lines_per_frame = 375,
