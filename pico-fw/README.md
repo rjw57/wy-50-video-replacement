@@ -14,6 +14,8 @@ The `libtmt` library is originally from https://github.com/deadpixi/libtmt.
 
 The `libtst` library is originally from https://www.freedesktop.org/wiki/Software/kmscon/libtsm/.
 
+The `libvterm` library is originally from https://www.leonerd.org.uk/code/libvterm/.
+
 Connect to serial console via:
 
 ```sh

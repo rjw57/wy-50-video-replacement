@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "libtsm.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
+#include "vterm.h"
 
 #include "cp437_map.h"
 #include "graphics.h"
@@ -16,19 +16,16 @@
 #define VIDEO_GPIO (NOTDIM_GPIO + 1) // == pin 7
 
 // Terminal state management.
-struct tsm_screen *term_screen;
-struct tsm_vte *term_vte;
-tsm_age_t last_drawn_age = 0;
+VTerm *term;
+VTermScreen *term_screen;
+VTermState *term_state;
+bool *line_damaged;
 
 // Frame buffer and frame counter (used for blinking text).
 uint8_t *frame_buffer;
 uint32_t frame_counter = 0;
 
 static void vblank_callback() { frame_counter++; }
-
-static void term_write_cb(struct tsm_vte *vte, const char *u8, size_t len, void *data) {
-  fwrite(u8, 1, len, stdout);
-}
 
 static uint8_t codepoint_to_ch(uint32_t cp) {
   if ((cp >= 0x20) && (cp < 0x7f)) {
@@ -60,32 +57,54 @@ static int rgb_to_px(uint8_t r, uint8_t g, uint8_t b) {
   }
 }
 
-static int term_draw_cb(struct tsm_screen *con, uint32_t id, const uint32_t *ch, size_t len,
-                        unsigned int width, unsigned int posx, unsigned int posy,
-                        const struct tsm_screen_attr *attr, tsm_age_t age, void *data) {
-  if (age <= last_drawn_age) {
-    return 0;
+static void term_output_cb(const char *s, size_t len, void *user) { fwrite(s, 1, len, stdout); }
+
+static void redraw_term(void) {
+  int n_rows, n_cols;
+  VTermPos pos;
+  VTermScreenCell cell;
+
+  vterm_get_size(term, &n_rows, &n_cols);
+  for (pos.row = 0; pos.row < n_rows; ++pos.row) {
+    if (!line_damaged[pos.row]) {
+      continue;
+    }
+    for (pos.col = 0; pos.col < n_cols; ++pos.col) {
+      vterm_screen_get_cell(term_screen, pos, &cell);
+      uint8_t c = codepoint_to_ch(cell.chars[0]);
+
+      uint8_t fg = 0x3, bg = 0x0;
+      if (!VTERM_COLOR_IS_DEFAULT_FG(&(cell.fg))) {
+        vterm_screen_convert_color_to_rgb(term_screen, &(cell.fg));
+        fg = rgb_to_px(cell.fg.rgb.red, cell.fg.rgb.green, cell.fg.rgb.blue);
+      }
+      if (!VTERM_COLOR_IS_DEFAULT_BG(&(cell.bg))) {
+        vterm_screen_convert_color_to_rgb(term_screen, &(cell.bg));
+        bg = rgb_to_px(cell.bg.rgb.red, cell.bg.rgb.green, cell.bg.rgb.blue);
+      }
+
+      if (cell.attrs.reverse) {
+        uint8_t tmp = fg;
+        fg = bg;
+        bg = tmp;
+      }
+
+      gfx_draw_char(pos.col * 9, pos.row * 14, c, fg, bg, GFX_OP_SET);
+    }
+    line_damaged[pos.row] = false;
   }
-
-  uint8_t char_code = codepoint_to_ch(id);
-  uint8_t fg = 0x2, bg = 0x0;
-
-  fg = rgb_to_px(attr->fr, attr->fg, attr->fb);
-  bg = rgb_to_px(attr->br, attr->bg, attr->bb);
-
-  if (attr->bold) {
-    fg |= 0x1;
-  }
-
-  if (attr->inverse) {
-    fg ^= 0x2;
-    bg ^= 0x2;
-  }
-
-  gfx_draw_char(posx * 9, posy * 14, char_code, fg, bg, GFX_OP_SET);
-
-  return 0;
 }
+
+static int term_screen_damage(VTermRect rect, void *user) {
+  for (int i = rect.start_row; i < rect.end_row; i++) {
+    line_damaged[i] = true;
+  }
+  return 1;
+}
+
+static VTermScreenCallbacks term_screen_cbs = {
+    .damage = term_screen_damage,
+};
 
 int main(void) {
   stdio_init_all();
@@ -97,20 +116,30 @@ int main(void) {
 
   memset(frame_buffer, 0xff, videoout_get_screen_stride() * videoout_get_screen_height());
 
-  tsm_screen_new(&term_screen, NULL, NULL);
-  tsm_screen_resize(term_screen, videoout_get_screen_width() / 9,
-                    videoout_get_screen_height() / 14);
-  tsm_vte_new(&term_vte, term_screen, term_write_cb, NULL, NULL, NULL);
+  int n_rows = videoout_get_screen_height() / 14, n_cols = videoout_get_screen_width() / 9;
+  term = vterm_new(n_rows, n_cols);
+  line_damaged = malloc(sizeof(bool) * n_rows);
+  for (int i = 0; i < n_rows; i++) {
+    line_damaged[i] = true;
+  }
+  vterm_set_utf8(term, 1);
+  term_state = vterm_obtain_state(term);
+  vterm_state_reset(term_state, 1);
+  term_screen = vterm_obtain_screen(term);
+  vterm_screen_set_callbacks(term_screen, &term_screen_cbs, NULL);
+
+  vterm_output_set_callback(term, term_output_cb, NULL);
 
   videoout_set_vblank_callback(vblank_callback);
-
   videoout_start();
 
   while (true) {
-    char buf[128];
+    redraw_term();
+
+    char buf[1024];
     int i;
     for (i = 0; i < sizeof(buf); ++i) {
-      int c = getchar_timeout_us(10000);
+      int c = getchar_timeout_us(20000);
       if (c == PICO_ERROR_TIMEOUT) {
         break;
       }
@@ -118,11 +147,10 @@ int main(void) {
     }
 
     if (i > 0) {
-      tsm_vte_input(term_vte, buf, i);
+      vterm_input_write(term, buf, i);
     }
-
-    last_drawn_age = tsm_screen_draw(term_screen, term_draw_cb, NULL);
   }
 
+  vterm_free(term);
   videoout_cleanup();
 }

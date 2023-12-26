@@ -20,17 +20,21 @@ endif()
 add_executable(
   firmware
   firmware.c videoout.c graphics.c
-  vendor/libtsm/shl_htable.c
-  vendor/libtsm/tsm_screen.c
-  vendor/libtsm/tsm_unicode.c
-  vendor/libtsm/tsm_vte.c
-  vendor/libtsm/tsm_vte_charsets.c
-  vendor/libtsm/external/wcwidth.c
+
+  vendor/libvterm/src/encoding.c
+  vendor/libvterm/src/keyboard.c
+  vendor/libvterm/src/mouse.c
+  vendor/libvterm/src/parser.c
+  vendor/libvterm/src/pen.c
+  vendor/libvterm/src/screen.c
+  vendor/libvterm/src/state.c
+  vendor/libvterm/src/unicode.c
+  vendor/libvterm/src/vterm.c
 )
 
 target_include_directories(
   firmware
-  PUBLIC vendor/libtsm
+  PUBLIC vendor/libtsm vendor/libvterm/include
 )
 
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/videoout.pio)

@@ -35,7 +35,7 @@ videoout_mode_t videoout_mode_720_350 = {
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 16608,
+    .hsync_width_ns = 17280,
     .visible_width_ns = 34560,
 };
 
