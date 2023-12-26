@@ -35,7 +35,7 @@ videoout_mode_t videoout_mode_720_350 = {
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 17280,
+    .hsync_width_ns = 16608,
     .visible_width_ns = 34560,
 };
 
@@ -46,13 +46,13 @@ videoout_mode_t videoout_mode_800_336 = {
     .line_period_ns = 44376,
     .lines_per_frame = 375,
     .vsync_lines_per_frame = 3,
-    .visible_start_line = 22,
+    .visible_start_line = 29,
 
     .hsync_width_ns = 16641,
     .visible_width_ns = 34400,
 };
 
-const videoout_mode_t* default_mode = &videoout_mode_720_350;
+const videoout_mode_t *default_mode = &videoout_mode_720_350;
 
 static bool videoout_is_running = false;
 static const videoout_mode_t *active_mode = NULL;
@@ -306,8 +306,12 @@ void videoout_init(PIO pio, uint sync_pin_base_, uint video_pin_base_) {
 }
 
 bool videoout_set_mode(const videoout_mode_t *mode) {
-  if(videoout_is_running) { return false; }
-  if(!mode_is_valid(mode)) { return false; }
+  if (videoout_is_running) {
+    return false;
+  }
+  if (!mode_is_valid(mode)) {
+    return false;
+  }
   mode_setup(mode);
   active_mode = mode;
   return true;
