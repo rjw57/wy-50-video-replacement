@@ -54,7 +54,7 @@ public side_effect_clear_trigger:
 
 .program video_output
 public entry_point:
-    set pins, 0     ; Blank output video
+    set pins, 1     ; Blank output video
     out x, 32       ; Read dots per line - 1
 
 .wrap_target
@@ -65,7 +65,7 @@ loop:
     out pins, 2     ; Write output video
     jmp y-- loop    ; If Y != 0, decrement otherwise jump
 
-    set pins, 0     ; Blank output video
+    set pins, 1     ; Blank output video
 .wrap
 
 % c-sdk {

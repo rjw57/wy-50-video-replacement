@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "pico/multicore.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
 #include "vterm.h"
@@ -19,10 +20,13 @@
 VTerm *term;
 VTermScreen *term_screen;
 VTermState *term_state;
-bool *line_damaged = NULL;
 VTermColor default_bg_color, default_fg_color;
-VTermPos cursor_pos = {.row = 0, .col = 0};
-bool cursor_visible = true;
+
+// Mutex-protected terminal state
+auto_init_mutex(term_state_mutex);
+VTermPos volatile cursor_pos = {.row = 0, .col = 0};
+bool volatile cursor_visible = true, cursor_moved = true;
+uint64_t line_damage_map = 0;
 
 // Font handling
 gfx_font_t *current_font;
@@ -96,10 +100,26 @@ static void redraw_term(void) {
   VTermScreenCell cell;
   uint32_t cell_height = gfx_font_get_cell_height(current_font);
   uint32_t cell_width = gfx_font_get_cell_width(current_font);
+  static uint32_t prev_frame_counter = 0;
 
+  mutex_enter_blocking(&term_state_mutex);
+  bool cursor_visible_copy = cursor_visible;
+  bool should_redraw_cursor = cursor_moved && cursor_visible;
+
+  if ((frame_counter & 0xf) != (prev_frame_counter & 0xf)) {
+    should_redraw_cursor = cursor_visible;
+  }
+  prev_frame_counter = frame_counter;
+
+  VTermPos cursor_pos_copy = {.row = cursor_pos.row, .col = cursor_pos.col};
   vterm_get_size(term, &n_rows, &n_cols);
+  uint64_t line_damage_map_copy = line_damage_map;
+  line_damage_map = 0;
+  mutex_exit(&term_state_mutex);
+
   for (pos.row = 0; pos.row < n_rows; ++pos.row) {
-    if (!line_damaged[pos.row]) {
+    if (!(line_damage_map_copy & (1 << pos.row)) &&
+        (!should_redraw_cursor || (pos.row != cursor_pos.row))) {
       continue;
     }
     for (pos.col = 0; pos.col < n_cols; ++pos.col) {
@@ -112,8 +132,11 @@ static void redraw_term(void) {
         reverse = !reverse;
       }
 
-      if (cursor_visible && (pos.col == cursor_pos.col) && (pos.row == cursor_pos.row)) {
-        reverse = !reverse;
+      if (cursor_visible_copy && (pos.col == cursor_pos_copy.col) &&
+          (pos.row == cursor_pos_copy.row)) {
+        if ((frame_counter >> 5) & 0x1) {
+          reverse = !reverse;
+        }
       }
 
       if (reverse) {
@@ -125,13 +148,19 @@ static void redraw_term(void) {
       gfx_font_draw_char(current_font, pos.col * cell_width, pos.row * cell_height, c, fg, bg,
                          GFX_OP_SET);
     }
-    line_damaged[pos.row] = false;
+  }
+}
+
+static void redraw_thread(void) {
+  while (true) {
+    videoout_wait_for_vblank();
+    redraw_term();
   }
 }
 
 static int term_screen_damage(VTermRect rect, void *user) {
   for (int i = rect.start_row; i < rect.end_row; i++) {
-    line_damaged[i] = true;
+    line_damage_map |= (1 << i);
   }
   return 1;
 }
@@ -148,10 +177,10 @@ static int term_screen_setttermprop(VTermProp prop, VTermValue *val, void *user)
 }
 
 static int term_screen_movecursor(VTermPos pos, VTermPos oldpos, int visible, void *user) {
-  line_damaged[oldpos.row] = true;
-  line_damaged[pos.row] = true;
+  line_damage_map |= (1 << oldpos.row);
   cursor_pos = pos;
   cursor_visible = !!visible;
+  cursor_moved = true;
   return 1;
 }
 
@@ -165,10 +194,7 @@ static void set_font(gfx_font_t *font) {
   int n_rows = videoout_get_screen_height() / gfx_font_get_cell_height(font);
   int n_cols = videoout_get_screen_width() / gfx_font_get_cell_width(font);
   current_font = font;
-  line_damaged = realloc(line_damaged, sizeof(bool) * n_rows);
-  for (int i = 0; i < n_rows; i++) {
-    line_damaged[i] = true;
-  }
+  line_damage_map = (1 << n_rows) - 1;
   vterm_set_size(term, n_rows, n_cols);
 }
 
@@ -204,24 +230,18 @@ int main(void) {
   videoout_start();
 
   vterm_input_write(term, "Started.\n\r", 10);
+
+  multicore_reset_core1();
+  multicore_launch_core1(redraw_thread);
+
   while (true) {
-    redraw_term();
-
-    char buf[1024];
-    int i;
-    for (i = 0; i < sizeof(buf); ++i) {
-      int c = getchar_timeout_us(40000);
-      if (c == PICO_ERROR_TIMEOUT) {
-        break;
-      }
-      buf[i] = c;
-    }
-
-    if (i > 0) {
-      vterm_input_write(term, buf, i);
-    }
+    char c = getchar();
+    mutex_enter_blocking(&term_state_mutex);
+    vterm_input_write(term, &c, 1);
+    mutex_exit(&term_state_mutex);
   }
 
+  multicore_reset_core1();
   vterm_free(term);
   videoout_cleanup();
 }

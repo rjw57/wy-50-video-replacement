@@ -39,7 +39,7 @@ videoout_mode_t videoout_mode_720_350 = {
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 16608,
+    .hsync_width_ns = 8256,
     .visible_width_ns = 34560,
 };
 
@@ -52,7 +52,7 @@ videoout_mode_t videoout_mode_864_350 = {
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 16600,
+    .hsync_width_ns = 8280,
     .visible_width_ns = 34560,
 };
 
@@ -65,7 +65,7 @@ videoout_mode_t videoout_mode_1024_350 = {
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 16608,
+    .hsync_width_ns = 8288,
     .visible_width_ns = 32768,
 };
 
