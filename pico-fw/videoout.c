@@ -39,20 +39,33 @@ videoout_mode_t videoout_mode_720_350 = {
     .visible_width_ns = 34560,
 };
 
-videoout_mode_t videoout_mode_800_336 = {
+videoout_mode_t videoout_mode_800_352 = {
     .visible_dots_per_line = 800,
-    .visible_lines_per_frame = 336,
+    .visible_lines_per_frame = 352,
 
     .line_period_ns = 44376,
     .lines_per_frame = 375,
     .vsync_lines_per_frame = 3,
-    .visible_start_line = 29,
+    .visible_start_line = 21,
 
     .hsync_width_ns = 16641,
     .visible_width_ns = 34400,
 };
 
-const videoout_mode_t *default_mode = &videoout_mode_720_350;
+videoout_mode_t videoout_mode_1008_350 = {
+    .visible_dots_per_line = 1008,
+    .visible_lines_per_frame = 350,
+
+    .line_period_ns = 44370,
+    .lines_per_frame = 375,
+    .vsync_lines_per_frame = 3,
+    .visible_start_line = 22,
+
+    .hsync_width_ns = 16592,
+    .visible_width_ns = 34272,
+};
+
+const videoout_mode_t *default_mode = &videoout_mode_1008_350;
 
 static bool videoout_is_running = false;
 static const videoout_mode_t *active_mode = NULL;
