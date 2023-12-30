@@ -1,29 +1,60 @@
 #include "graphics.h"
 
-#include "mda_font.h"
+#include "cga_8x8_font.h"
+#include "mda_8x14_font.h"
+#include "mda_9x14_font.h"
+
+struct gfx_font {
+  uint8_t *data;
+  uint8_t cell_width, cell_height;
+};
+
+gfx_font_t gfx_mda_9x14_font = {
+    .data = mda_9x14_font,
+    .cell_width = 9,
+    .cell_height = 14,
+};
+
+gfx_font_t gfx_mda_8x14_font = {
+    .data = mda_8x14_font,
+    .cell_width = 8,
+    .cell_height = 14,
+};
+
+gfx_font_t gfx_cga_8x8_font = {
+    .data = cga_8x8_font,
+    .cell_width = 8,
+    .cell_height = 8,
+};
 
 static uint8_t *gfx_frame_buffer;
 static uint32_t gfx_frame_buffer_stride;
 
-static uint16_t get_font_row(uint8_t char_idx, uint32_t y) {
-  // Font is packed into 9 bits x 14 row cells arranged in 32 x 8 cells. Work out which row in the
-  // font matrix we need to extract.
-  const uint32_t matrix_stride = 36; // bytes
-  uint32_t matrix_row = 14 * (char_idx >> 5) + y;
+static inline uint16_t get_font_row(gfx_font_t *font, uint8_t char_idx, uint32_t y) {
+  // Font is packed into (cell width) bits x (cell height) row cells arranged in 16 x 16 cells. Work
+  // out which row in the font matrix we need to extract.
+  const uint32_t matrix_stride = font->cell_width << 1; // bytes
+  uint32_t matrix_row = font->cell_height * (char_idx >> 4) + y;
 
-  uint32_t start_bit = (char_idx & 0x1f) * 9;
+  uint32_t start_bit = (char_idx & 0xf) * font->cell_width;
   uint32_t start_byte = start_bit >> 3;
   uint32_t start_bit_within_byte = start_bit & 0x7;
 
-  uint8_t left = mda_font[matrix_row * matrix_stride + start_byte];
-  uint8_t right = mda_font[matrix_row * matrix_stride + start_byte + 1];
+  uint8_t left = font->data[matrix_row * matrix_stride + start_byte];
+  if (font->cell_width == 8) {
+    return left;
+  } else if (font->cell_width == 9) {
+    uint16_t out_row = left;
+    uint8_t right = font->data[matrix_row * matrix_stride + start_byte + 1];
 
-  uint16_t out_row = left;
-  out_row <<= (1 + start_bit_within_byte);
-  out_row |= right >> (7 - start_bit_within_byte);
-  out_row &= 0x1ff;
+    out_row <<= (1 + start_bit_within_byte);
+    out_row |= right >> (7 - start_bit_within_byte);
+    out_row &= 0x1ff;
 
-  return out_row;
+    return out_row;
+  }
+
+  return 0;
 }
 
 void gfx_set_frame_buffer(uint8_t *frame_buffer, uint32_t stride) {
@@ -56,12 +87,17 @@ void gfx_update_pixel(uint32_t x, uint32_t y, uint8_t v, gfx_operation_t op) {
   row[byte_idx] = p;
 }
 
-void gfx_draw_char(uint32_t x, uint32_t y, uint8_t c, uint8_t active_v, uint8_t inactive_v,
-                   gfx_operation_t op) {
-  for (uint32_t ridx = 0; ridx < 14; ridx++, y++) {
-    uint16_t row = get_font_row(c, ridx);
-    for (uint32_t cidx = 0; cidx < 9; cidx++) {
-      gfx_update_pixel(x + cidx, y, (row & (1 << (8 - cidx))) ? active_v : inactive_v, op);
+uint8_t gfx_font_get_cell_width(gfx_font_t *font) { return font->cell_width; }
+uint8_t gfx_font_get_cell_height(gfx_font_t *font) { return font->cell_height; }
+
+void gfx_font_draw_char(gfx_font_t *font, uint32_t x, uint32_t y, uint8_t c, uint8_t active_v,
+                        uint8_t inactive_v, gfx_operation_t op) {
+  uint8_t cell_height = font->cell_height, cell_width = font->cell_width;
+  for (uint32_t ridx = 0; ridx < cell_height; ridx++, y++) {
+    uint16_t row = get_font_row(font, c, ridx);
+    for (uint32_t cidx = 0; cidx < cell_width; cidx++) {
+      gfx_update_pixel(x + cidx, y, (row & (1 << (cell_width - 1 - cidx))) ? active_v : inactive_v,
+                       op);
     }
   }
 }

@@ -6,6 +6,8 @@ typedef struct videoout_mode videoout_mode_t;
 
 // Standard modes.
 extern videoout_mode_t videoout_mode_720_350;
+extern videoout_mode_t videoout_mode_864_350;
+extern videoout_mode_t videoout_mode_1024_350;
 
 // Callback to be notified of video blanking period start.
 typedef void (*videoout_vblank_callback_t) (void);

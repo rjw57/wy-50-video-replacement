@@ -26,6 +26,10 @@ struct videoout_mode {
 // This is tweaked slightly from the mode used by the terminal itself to slightly widen each line.
 // This lets us fit the 720 pixels in with a dot clock being a nice integer multiple of the line
 // sync clock. This reduces noise in the output.
+//
+// Note that the video modes here have been carefully chosen so that the dot clock becomes an
+// integer multiple of the 125MHz base clock of the pico. This reduces clock jitter and improves
+// picture quality.
 videoout_mode_t videoout_mode_720_350 = {
     .visible_dots_per_line = 720,
     .visible_lines_per_frame = 350,
@@ -39,33 +43,33 @@ videoout_mode_t videoout_mode_720_350 = {
     .visible_width_ns = 34560,
 };
 
-videoout_mode_t videoout_mode_800_352 = {
-    .visible_dots_per_line = 800,
-    .visible_lines_per_frame = 352,
-
-    .line_period_ns = 44376,
-    .lines_per_frame = 375,
-    .vsync_lines_per_frame = 3,
-    .visible_start_line = 21,
-
-    .hsync_width_ns = 16641,
-    .visible_width_ns = 34400,
-};
-
-videoout_mode_t videoout_mode_1008_350 = {
-    .visible_dots_per_line = 1008,
+videoout_mode_t videoout_mode_864_350 = {
+    .visible_dots_per_line = 864,
     .visible_lines_per_frame = 350,
 
-    .line_period_ns = 44370,
+    .line_period_ns = 44400,
     .lines_per_frame = 375,
     .vsync_lines_per_frame = 3,
     .visible_start_line = 22,
 
-    .hsync_width_ns = 16592,
-    .visible_width_ns = 34272,
+    .hsync_width_ns = 16600,
+    .visible_width_ns = 34560,
 };
 
-const videoout_mode_t *default_mode = &videoout_mode_1008_350;
+videoout_mode_t videoout_mode_1024_350 = {
+    .visible_dots_per_line = 1024,
+    .visible_lines_per_frame = 350,
+
+    .line_period_ns = 44384,
+    .lines_per_frame = 375,
+    .vsync_lines_per_frame = 3,
+    .visible_start_line = 22,
+
+    .hsync_width_ns = 16608,
+    .visible_width_ns = 32768,
+};
+
+const videoout_mode_t *default_mode = &videoout_mode_720_350;
 
 static bool videoout_is_running = false;
 static const videoout_mode_t *active_mode = NULL;
@@ -89,7 +93,7 @@ static bool mode_is_valid(const videoout_mode_t *m) {
   if ((m->visible_dots_per_line & 0xf) != 0) {
     return false;
   }
-  if (mode_back_porch_width_ns(m) >= m->hsync_width_ns) {
+  if (mode_back_porch_width_ns(m) == m->hsync_width_ns) {
     return false;
   }
   if (m->lines_per_frame <= m->vsync_lines_per_frame + m->vsync_lines_per_frame) {
@@ -131,16 +135,29 @@ static inline void mode_setup(const videoout_mode_t *m) {
   sync_timing_vsync_line[1] = sync_timing_encode(0, 1, m->line_period_ns - m->hsync_width_ns,
                                                  SIDE_EFFECT_NOP, dot_clock_period_ns);
 
-  sync_timing_visible_line[0] =
-      sync_timing_encode(1, 0, mode_back_porch_width_ns(m), SIDE_EFFECT_NOP, dot_clock_period_ns);
-  sync_timing_visible_line[1] =
-      sync_timing_encode(1, 0, m->hsync_width_ns - mode_back_porch_width_ns(m),
-                         SIDE_EFFECT_SET_TRIGGER, dot_clock_period_ns);
-  sync_timing_visible_line[2] = sync_timing_encode(0, 0, 16 * dot_clock_period_ns,
-                                                   SIDE_EFFECT_CLEAR_TRIGGER, dot_clock_period_ns);
-  sync_timing_visible_line[3] =
-      sync_timing_encode(0, 0, m->line_period_ns - m->hsync_width_ns - (16 * dot_clock_period_ns),
-                         SIDE_EFFECT_NOP, dot_clock_period_ns);
+  if (mode_back_porch_width_ns(m) < m->hsync_width_ns) {
+    sync_timing_visible_line[0] =
+        sync_timing_encode(1, 0, mode_back_porch_width_ns(m), SIDE_EFFECT_NOP, dot_clock_period_ns);
+    sync_timing_visible_line[1] =
+        sync_timing_encode(1, 0, m->hsync_width_ns - mode_back_porch_width_ns(m),
+                           SIDE_EFFECT_SET_TRIGGER, dot_clock_period_ns);
+    sync_timing_visible_line[2] = sync_timing_encode(
+        0, 0, 16 * dot_clock_period_ns, SIDE_EFFECT_CLEAR_TRIGGER, dot_clock_period_ns);
+    sync_timing_visible_line[3] =
+        sync_timing_encode(0, 0, m->line_period_ns - m->hsync_width_ns - (16 * dot_clock_period_ns),
+                           SIDE_EFFECT_NOP, dot_clock_period_ns);
+  } else {
+    sync_timing_visible_line[0] =
+        sync_timing_encode(1, 0, m->hsync_width_ns, SIDE_EFFECT_NOP, dot_clock_period_ns);
+    sync_timing_visible_line[1] =
+        sync_timing_encode(1, 0, mode_back_porch_width_ns(m) - m->hsync_width_ns, SIDE_EFFECT_NOP,
+                           dot_clock_period_ns);
+    sync_timing_visible_line[2] = sync_timing_encode(0, 0, 16 * dot_clock_period_ns,
+                                                     SIDE_EFFECT_SET_TRIGGER, dot_clock_period_ns);
+    sync_timing_visible_line[3] =
+        sync_timing_encode(0, 0, m->visible_width_ns - (16 * dot_clock_period_ns),
+                           SIDE_EFFECT_CLEAR_TRIGGER, dot_clock_period_ns);
+  }
 }
 
 // Semaphore used to signal vblank.

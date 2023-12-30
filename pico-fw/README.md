@@ -41,6 +41,12 @@ Ideally the VIDEO, !DIM, HSYNC and VSYNC signals will be buffered by any conveni
 4000-series logic. For example, the WY-50 terminal itself uses a 7408 quad AND gate to buffer the
 video signals.
 
+One should put a decoupling cap over +5V and GND from the WY-50 terminal close to the buffering IC.
+
+Ideally +5V from the terminal will be connected via a diode to avoid back-driving the power supply.
+Similarly, connecting pin 37 (3V3 En) to +5V and to GND via a pull-down resistor causes the pico to
+only power up when the WY-50 terminal is powered.
+
 ## Picoprobe
 
 Configuration for udev allowing members of the `dialout` group to connect to a picoprobe is provided
@@ -84,10 +90,13 @@ reset the pico.
 
 ## Font
 
-Font references taken from http://www.bay12forums.com/smf/index.php?topic=158849.0 and converted
-into raw data via:
+Font references taken from
+https://dwarffortresswiki.org/index.php/DF2014:Tileset_repository#8.C3.9714 and converted into raw
+data via:
 
 ```console
-$ convert mda9-font.png -negate -depth 1 GRAY:mda9-font.data
-$ xxd -i -n mda_font mda9-font.data mda_font.h
+$ convert MDA9x14.png -depth 1 -threshold 50% GRAY:mda_font.data
+$ xxd -i -n mda_font mda_font.data mda_font.h
 ```
+
+And similarly for other fonts.
