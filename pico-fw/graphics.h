@@ -14,6 +14,8 @@ typedef enum {
 } gfx_operation_t;
 
 void gfx_set_frame_buffer(uint8_t *frame_buffer, uint32_t stride);
+uint8_t *gfx_get_frame_buffer(void);
+uint32_t gfx_get_frame_buffer_stride(void);
 
 void gfx_update_pixel(uint32_t x, uint32_t y, uint8_t v, gfx_operation_t op);
 

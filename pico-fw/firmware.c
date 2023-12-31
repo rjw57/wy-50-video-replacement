@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "pico/multicore.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
 #include "vterm.h"
@@ -21,12 +20,9 @@ VTerm *term;
 VTermScreen *term_screen;
 VTermState *term_state;
 VTermColor default_bg_color, default_fg_color;
-
-// Mutex-protected terminal state
-auto_init_mutex(term_state_mutex);
-VTermPos volatile cursor_pos = {.row = 0, .col = 0};
-bool volatile cursor_visible = true, cursor_moved = true;
-uint64_t *line_damages = NULL;
+VTermPos cursor_pos = {.row = 0, .col = 0};
+bool cursor_visible = true, cursor_moved = true;
+uint32_t *line_damages = NULL;
 
 // Font handling
 gfx_font_t *current_font;
@@ -102,7 +98,6 @@ static void redraw_term(void) {
   uint32_t cell_width = gfx_font_get_cell_width(current_font);
   static uint32_t prev_frame_counter = 0;
 
-  mutex_enter_blocking(&term_state_mutex);
   bool should_redraw_cursor = cursor_moved && cursor_visible;
 
   if ((frame_counter & 0xf) != (prev_frame_counter & 0xf)) {
@@ -113,15 +108,17 @@ static void redraw_term(void) {
   vterm_get_size(term, &n_rows, &n_cols);
 
   for (pos.col = 0; pos.col < n_cols; ++pos.col) {
-    uint64_t line_damage_mask = line_damages[pos.col];
-    if ((line_damage_mask == 0) && ((!should_redraw_cursor || (pos.col != cursor_pos.col)))) {
+    uint32_t damage_mask = line_damages[pos.col];
+    if ((damage_mask == 0) && ((!should_redraw_cursor || (pos.col != cursor_pos.col)))) {
       continue;
     }
+
     for (pos.row = 0; pos.row < n_rows; ++pos.row) {
-      if (!(line_damage_mask & (1 << pos.row)) &&
+      if (!(damage_mask & (1 << pos.row)) &&
           (!should_redraw_cursor || (pos.row != cursor_pos.row))) {
         continue;
       }
+
       vterm_screen_get_cell(term_screen, pos, &cell);
       uint8_t c = codepoint_to_ch(cell.chars[0]);
       uint8_t fg = color_to_px(&cell.fg), bg = color_to_px(&cell.bg);
@@ -146,21 +143,15 @@ static void redraw_term(void) {
       gfx_font_draw_char(current_font, pos.col * cell_width, pos.row * cell_height, c, fg, bg,
                          GFX_OP_SET);
     }
-    line_damages[pos.col] = 0;
   }
 
-  mutex_exit(&term_state_mutex);
-}
-
-static void redraw_thread(void) {
-  while (true) {
-    videoout_wait_for_vblank();
-    redraw_term();
+  for (pos.col = 0; pos.col < n_cols; ++pos.col) {
+    line_damages[pos.col] = 0;
   }
 }
 
 static int term_screen_damage(VTermRect rect, void *user) {
-  uint64_t line_damage_mask = 0;
+  uint32_t line_damage_mask = 0;
   for (int i = rect.start_row; i < rect.end_row; i++) {
     line_damage_mask |= (1 << i);
   }
@@ -237,24 +228,20 @@ int main(void) {
   videoout_set_vblank_callback(vblank_callback);
   videoout_start();
 
-  vterm_input_write(term, "Started.\n\r", 10);
-  for (int i = 0; i < 20; ++i) {
-    for (char ch = ' '; ch < 127; ch++) {
-      vterm_input_write(term, &ch, 1);
-    }
-  }
-
-  multicore_reset_core1();
-  multicore_launch_core1(redraw_thread);
-
+  char buf[1024];
   while (true) {
-    char c = getchar();
-    mutex_enter_blocking(&term_state_mutex);
-    vterm_input_write(term, &c, 1);
-    mutex_exit(&term_state_mutex);
+    redraw_term();
+    int i = 0;
+    for (i = 0; i < sizeof(buf); i++) {
+      int c = getchar_timeout_us(32000);
+      if (c == PICO_ERROR_TIMEOUT) {
+        break;
+      }
+      buf[i] = c;
+    }
+    vterm_input_write(term, buf, i);
   }
 
-  multicore_reset_core1();
   vterm_free(term);
   videoout_cleanup();
 }
