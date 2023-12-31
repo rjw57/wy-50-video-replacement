@@ -215,7 +215,7 @@ int main(void) {
   term = vterm_new(80, 25);
   vterm_output_set_callback(term, term_output_cb, NULL);
   vterm_set_utf8(term, 1);
-  set_font(&gfx_mda_8x14_font);
+  set_font(&gfx_mda_9x14_font);
 
   term_screen = vterm_obtain_screen(term);
   vterm_color_rgb(&default_bg_color, 0, 0, 0);
@@ -230,6 +230,11 @@ int main(void) {
   videoout_start();
 
   vterm_input_write(term, "Started.\n\r", 10);
+  for (int i = 0; i < 20; ++i) {
+    for (char ch = ' '; ch < 127; ch++) {
+      vterm_input_write(term, &ch, 1);
+    }
+  }
 
   multicore_reset_core1();
   multicore_launch_core1(redraw_thread);
