@@ -26,7 +26,7 @@ VTermColor default_bg_color, default_fg_color;
 auto_init_mutex(term_state_mutex);
 VTermPos volatile cursor_pos = {.row = 0, .col = 0};
 bool volatile cursor_visible = true, cursor_moved = true;
-uint64_t line_damage_map = 0;
+uint64_t *line_damages = NULL;
 
 // Font handling
 gfx_font_t *current_font;
@@ -103,7 +103,6 @@ static void redraw_term(void) {
   static uint32_t prev_frame_counter = 0;
 
   mutex_enter_blocking(&term_state_mutex);
-  bool cursor_visible_copy = cursor_visible;
   bool should_redraw_cursor = cursor_moved && cursor_visible;
 
   if ((frame_counter & 0xf) != (prev_frame_counter & 0xf)) {
@@ -111,18 +110,18 @@ static void redraw_term(void) {
   }
   prev_frame_counter = frame_counter;
 
-  VTermPos cursor_pos_copy = {.row = cursor_pos.row, .col = cursor_pos.col};
   vterm_get_size(term, &n_rows, &n_cols);
-  uint64_t line_damage_map_copy = line_damage_map;
-  line_damage_map = 0;
-  mutex_exit(&term_state_mutex);
 
-  for (pos.row = 0; pos.row < n_rows; ++pos.row) {
-    if (!(line_damage_map_copy & (1 << pos.row)) &&
-        (!should_redraw_cursor || (pos.row != cursor_pos.row))) {
+  for (pos.col = 0; pos.col < n_cols; ++pos.col) {
+    uint64_t line_damage_mask = line_damages[pos.col];
+    if ((line_damage_mask == 0) && ((!should_redraw_cursor || (pos.col != cursor_pos.col)))) {
       continue;
     }
-    for (pos.col = 0; pos.col < n_cols; ++pos.col) {
+    for (pos.row = 0; pos.row < n_rows; ++pos.row) {
+      if (!(line_damage_mask & (1 << pos.row)) &&
+          (!should_redraw_cursor || (pos.row != cursor_pos.row))) {
+        continue;
+      }
       vterm_screen_get_cell(term_screen, pos, &cell);
       uint8_t c = codepoint_to_ch(cell.chars[0]);
       uint8_t fg = color_to_px(&cell.fg), bg = color_to_px(&cell.bg);
@@ -132,8 +131,7 @@ static void redraw_term(void) {
         reverse = !reverse;
       }
 
-      if (cursor_visible_copy && (pos.col == cursor_pos_copy.col) &&
-          (pos.row == cursor_pos_copy.row)) {
+      if (cursor_visible && (pos.col == cursor_pos.col) && (pos.row == cursor_pos.row)) {
         if ((frame_counter >> 5) & 0x1) {
           reverse = !reverse;
         }
@@ -148,7 +146,10 @@ static void redraw_term(void) {
       gfx_font_draw_char(current_font, pos.col * cell_width, pos.row * cell_height, c, fg, bg,
                          GFX_OP_SET);
     }
+    line_damages[pos.col] = 0;
   }
+
+  mutex_exit(&term_state_mutex);
 }
 
 static void redraw_thread(void) {
@@ -159,8 +160,12 @@ static void redraw_thread(void) {
 }
 
 static int term_screen_damage(VTermRect rect, void *user) {
+  uint64_t line_damage_mask = 0;
   for (int i = rect.start_row; i < rect.end_row; i++) {
-    line_damage_map |= (1 << i);
+    line_damage_mask |= (1 << i);
+  }
+  for (int i = rect.start_col; i < rect.end_col; i++) {
+    line_damages[i] |= line_damage_mask;
   }
   return 1;
 }
@@ -177,7 +182,7 @@ static int term_screen_setttermprop(VTermProp prop, VTermValue *val, void *user)
 }
 
 static int term_screen_movecursor(VTermPos pos, VTermPos oldpos, int visible, void *user) {
-  line_damage_map |= (1 << oldpos.row);
+  line_damages[oldpos.col] |= (1 << oldpos.row);
   cursor_pos = pos;
   cursor_visible = !!visible;
   cursor_moved = true;
@@ -194,7 +199,10 @@ static void set_font(gfx_font_t *font) {
   int n_rows = videoout_get_screen_height() / gfx_font_get_cell_height(font);
   int n_cols = videoout_get_screen_width() / gfx_font_get_cell_width(font);
   current_font = font;
-  line_damage_map = (1 << n_rows) - 1;
+  line_damages = realloc(line_damages, sizeof(line_damages[0]) * n_cols);
+  for (int c = 0; c < n_cols; ++c) {
+    line_damages[c] = (1 << n_rows) - 1;
+  }
   vterm_set_size(term, n_rows, n_cols);
 }
 
@@ -215,7 +223,7 @@ int main(void) {
   term = vterm_new(80, 25);
   vterm_output_set_callback(term, term_output_cb, NULL);
   vterm_set_utf8(term, 1);
-  set_font(&gfx_mda_9x14_font);
+  set_font(&gfx_mda_8x14_font);
 
   term_screen = vterm_obtain_screen(term);
   vterm_color_rgb(&default_bg_color, 0, 0, 0);
